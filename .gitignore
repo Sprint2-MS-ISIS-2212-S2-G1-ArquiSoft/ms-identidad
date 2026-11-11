@@ -1,0 +1,9 @@
+node_modules/
+dist/
+coverage/
+.env
+*.log
+*.key
+*.pem
+*.p12
+.DS_Store

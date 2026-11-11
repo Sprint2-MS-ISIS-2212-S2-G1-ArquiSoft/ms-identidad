@@ -1,0 +1,58 @@
+# Solo para desarrollo local. El despliegue real (docker-compose por nodo EC2)
+# vive en el repositorio paraguas.
+services:
+  identidad:
+    build: .
+    container_name: identidad
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: identidad
+      DB_PASSWORD: identidad
+      DB_NAME: identidad
+      DB_LOGGING: "false"
+      TERCEROS_URL: http://terceros-mock:3000
+    ports:
+      - "3001:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      terceros-mock:
+        condition: service_started
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: identidad-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: identidad
+      POSTGRES_USER: identidad
+      POSTGRES_PASSWORD: identidad
+    ports:
+      - "5433:5432"
+    volumes:
+      - identidad_postgres_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U identidad -d identidad"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Sustituto de ms-terceros, que todavia no esta migrado. Responde siempre
+  # que el KYC es valido, para poder ejercitar POST /clientes/verificacion.
+  # Pararlo (docker compose stop terceros-mock) sirve para probar el 503.
+  terceros-mock:
+    image: node:20-alpine
+    container_name: identidad-terceros-mock
+    restart: unless-stopped
+    command:
+      - node
+      - -e
+      - "require('http').createServer((q,s)=>{q.on('data',()=>{});q.on('end',()=>{const ok=q.method==='POST'&&q.url==='/kyc/verificaciones';s.writeHead(ok?200:404,{'Content-Type':'application/json'});s.end(JSON.stringify(ok?{valido:true}:{error:'not found'}))})}).listen(3000,()=>console.log('terceros-mock escuchando en 3000'))"
+
+volumes:
+  identidad_postgres_data:
