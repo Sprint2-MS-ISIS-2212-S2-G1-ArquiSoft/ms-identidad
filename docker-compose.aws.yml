@@ -1,0 +1,66 @@
+# Despliegue para el experimento ASR de Escalabilidad (Reprocesamiento Batch de Perfiles)
+# Separa Identidad en dos servicios independientes (Tactica 1: Aislamiento Online vs Batch):
+#   1) identidad-api    (MODE=api)    -> Atiende a Distribucion usando exclusivamente RDS Primary (reserva 30% pool)
+#   2) identidad-worker (MODE=worker) -> Competing Consumers desde SQS leyendo de RDS Read Replica (acotado al 70% pool)
+services:
+  identidad-api:
+    build: .
+    container_name: identidad-api
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      MODE: api
+      DB_PRIMARY_HOST: ${DB_PRIMARY_HOST}
+      DB_REPLICA_HOST: ${DB_REPLICA_HOST:-${DB_PRIMARY_HOST}}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_USER: ${DB_USER:-identidad}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME:-identidad}
+      RDS_MAX_CONNECTIONS: ${RDS_MAX_CONNECTIONS:-85}
+      MAX_WORKER_REPLICAS: ${MAX_WORKER_REPLICAS:-4}
+      DB_POOL_SIZE: ${API_DB_POOL_SIZE:-20}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
+      SQS_QUEUE_URL: ${SQS_QUEUE_URL}
+      TERCEROS_URL: http://terceros-mock:3000
+    ports:
+      - "3001:3000"
+    depends_on:
+      - terceros-mock
+
+  identidad-worker:
+    build: .
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      MODE: worker
+      DB_PRIMARY_HOST: ${DB_PRIMARY_HOST}
+      DB_REPLICA_HOST: ${DB_REPLICA_HOST}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_USER: ${DB_USER:-identidad}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME:-identidad}
+      RDS_MAX_CONNECTIONS: ${RDS_MAX_CONNECTIONS:-85}
+      MAX_WORKER_REPLICAS: ${MAX_WORKER_REPLICAS:-4}
+      DB_POOL_SIZE: ${WORKER_DB_POOL_SIZE:-14}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
+      SQS_QUEUE_URL: ${SQS_QUEUE_URL}
+      SQS_CONCURRENCY: ${SQS_CONCURRENCY:-6}
+      WORKER_WRITE_BACK: ${WORKER_WRITE_BACK:-true}
+      TERCEROS_URL: http://terceros-mock:3000
+
+  terceros-mock:
+    image: node:20-alpine
+    container_name: identidad-terceros-mock
+    restart: unless-stopped
+    command:
+      - node
+      - -e
+      - "require('http').createServer((q,s)=>{q.on('data',()=>{});q.on('end',()=>{const ok=q.method==='POST'&&q.url==='/kyc/verificaciones';s.writeHead(ok?200:404,{'Content-Type':'application/json'});s.end(JSON.stringify(ok?{valido:true}:{error:'not found'}))})}).listen(3000,()=>console.log('terceros-mock escuchando en 3000'))"

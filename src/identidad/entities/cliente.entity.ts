@@ -1,4 +1,4 @@
-import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
+import { Column, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
 
 /**
  * Cliente de Solventa.
@@ -21,10 +21,25 @@ export class Cliente {
 
   /**
    * Documento de identidad. Es la llave natural que usa la verificacion,
-   * pero no tiene restriccion UNIQUE, igual que en el monolito.
+   * indexada para que el flujo transaccional online responda en < 5 ms
+   * incluso con cientos de miles de perfiles en la tabla.
    */
+  @Index('idx_clientes_documento')
   @Column()
   documento!: string;
+
+  @Column({ name: 'score_riesgo', type: 'int', default: 50 })
+  scoreRiesgo!: number;
+
+  @Column({ name: 'nivel_riesgo', type: 'varchar', default: 'MEDIO' })
+  nivelRiesgo!: string;
+
+  @Column({
+    name: 'actualizado_en',
+    type: 'timestamp',
+    default: () => 'CURRENT_TIMESTAMP',
+  })
+  actualizadoEn!: Date;
 
   /**
    * Metodo base: el cliente otorga su consentimiento para el acceso
